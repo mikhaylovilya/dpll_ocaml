@@ -1,0 +1,41 @@
+on:
+  push:
+    branches:
+      - "main"
+
+env:
+  OPAMROOT: /home/opam/.opam
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+
+    runs-on: ubuntu-latest
+    container:
+      image: ocaml/opam:ubuntu-20.04-ocaml-4.14
+      options: --user root
+
+    steps:
+      - run: opam --version
+      - run: opam exec -- ocamlopt --version
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.7.0
+        with:
+          access_token: ${{ github.token }}
+
+      # checking out the code seems to be important because local switch is used
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+
+      # docker has opam 2.0.x where depext is not yet integrated
+      - run: sudo apt update
+      - run: sudo apt install pkg-config --yes
+      - run: sudo apt install libpcre3-dev m4 --yes
+    # - run: sudo apt install software-properties-common --yes
+    # - run: sudo apt update
+      - run: eval $(opam env)
+      - run: opam exec -- dune build
+      # - run: opam exec -- dune runtest
