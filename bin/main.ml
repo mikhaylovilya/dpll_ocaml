@@ -6,7 +6,7 @@ let debug_mode = 1
 (* type mystruct = int list list *)
 type cnf_options = { vars_num : int; cls_num : int }
 type formula = { cnf_options : cnf_options; clauses : int list list }
-(* type cnf_result = Sat | Unsat Sat of ... *)
+type cnf_result = Unsat | Sat of int list
 
 let log str = if debug_mode = 1 then Caml.Format.printf "%s\n" str
 
@@ -27,6 +27,7 @@ let parse_cnf ~path =
     | Some x -> (
         match String.split_on_chars ~on:[ ' ' ] x with
         | [ "p"; "cnf"; vars_num; cls_num ] ->
+            let _ = log "header" in
             let _ = log_lst [ vars_num; cls_num ] in
             Some
               {
@@ -42,6 +43,7 @@ let parse_cnf ~path =
         match List.tl @@ List.rev @@ String.split_on_chars ~on:[ ' ' ] x with
         | None -> None
         | Some line ->
+            let _ = log "clause" in
             let _ = log_lst line in
             parse_clauses
             @@ insert ~cls:(List.map line ~f:(fun s -> Int.of_string s)) ~acc)
@@ -80,11 +82,18 @@ module CNFFormula = struct
   let substitute l f =
     let no_pure_occurence =
       List.filter f.clauses ~f:(fun cls ->
-          phys_equal cls (List.filter cls ~f:(fun lit -> not (lit = l))))
+          List.length cls
+          = List.length (List.filter cls ~f:(fun lit -> not (lit = l))))
+      (*todo: rewrite, length is O(n)*)
     in
     let no_occurence =
       List.map no_pure_occurence ~f:(fun cls ->
           List.filter cls ~f:(fun lit -> not (lit = -l)))
+    in
+    let _ = log "Substitute" in
+    let _ =
+      List.iter no_occurence ~f:(fun cls ->
+          log_lst @@ List.map cls ~f:Int.to_string)
     in
     { cnf_options = f.cnf_options; clauses = no_occurence }
 
@@ -111,14 +120,50 @@ module CNFFormula = struct
               in
               Hash_set.add all_lits lit))
     in
+    let _ = log "pure literals" in
     let _ = log_lst @@ List.map (Hash_set.to_list pure_lits) ~f:Int.to_string in
     pure_lits
+
+  let pure_literal_elimination l f = substitute l f (*ok?*)
+  let choose f = List.hd_exn @@ List.hd_exn f.clauses
 end
+
+let solve f =
+  let pure_literals = CNFFormula.get_pure_literals f in
+  let rec loop f pure_literals acc : cnf_result =
+    if CNFFormula.is_satisfiable f then Sat acc
+    else if CNFFormula.does_contain_empty_clause f then Unsat
+    else
+      match CNFFormula.does_contain_unit_clause f with
+      | Some l -> loop (CNFFormula.unit_propagation l f) pure_literals (l :: acc)
+      | None -> (
+          if not (Hash_set.is_empty pure_literals) then
+            let l = List.hd_exn @@ Hash_set.to_list pure_literals in
+            let _ = Hash_set.remove pure_literals l in
+            loop
+              (CNFFormula.pure_literal_elimination l f)
+              pure_literals (l :: acc)
+          else
+            let l = CNFFormula.choose f in
+            match loop (CNFFormula.substitute l f) pure_literals (l :: acc) with
+            | Unsat ->
+                loop (CNFFormula.substitute (-l) f) pure_literals (-l :: acc)
+            | Sat acc -> Sat acc)
+  in
+  loop f pure_literals []
+
+let print_model = function
+  | None -> log "Error during parsing file"
+  | Some cnf_res -> (
+      match cnf_res with
+      | Unsat -> log "Unsat"
+      | Sat res ->
+          let _ = log "Sat" in
+          log_lst @@ List.map res ~f:Int.to_string)
 
 let main ~path =
   match parse_cnf ~path with
   | Some hdr, Some clx ->
       let f = { cnf_options = hdr; clauses = clx } in
-      let _ = CNFFormula.get_pure_literals f in
-      Some f
+      Some (solve f)
   | _, _ -> None
