@@ -3,52 +3,10 @@ open Stdio
 
 let debug_mode = 1
 
-(* exception Myexn *)
-
 (* type mystruct = int list list *)
 type cnf_options = { vars_num : int; cls_num : int }
+type formula = { cnf_options : cnf_options; clauses : int list list }
 (* type cnf_result = Sat | Unsat Sat of ... *)
-
-module CNFFormula = struct
-  type t = { cnf_options : cnf_options; clauses : int list list }
-
-  let is_satisfiable : t -> bool = fun f -> List.length f.clauses = 0
-
-  let does_contain_empty_clause f =
-    let rec helper = function
-      | [] -> false
-      | hd :: tl -> if List.length hd = 0 then true else helper tl
-    in
-    helper f.clauses
-
-  let does_contain_unit_clause f =
-    let rec helper = function
-      | [] -> None
-      | hd :: tl -> if List.length hd = 1 then List.hd hd else helper tl
-    in
-    helper f.clauses
-
-  let substitute l f =
-    let no_pure_appearence =
-      List.filter f.clauses ~f:(fun cls ->
-          phys_equal cls (List.filter cls ~f:(fun lit -> not (lit = l))))
-    in
-    let no_appearence =
-      List.map no_pure_appearence ~f:(fun cls ->
-          List.filter cls ~f:(fun lit -> not (lit = -l)))
-    in
-    { cnf_options = f.cnf_options; clauses = no_appearence }
-
-  let unit_propagation l f =
-    let no_unit_clx =
-      List.filter f.clauses ~f:(fun cls ->
-          (not (List.length cls = 1)) || not (List.hd_exn cls = l))
-    in
-    substitute l { cnf_options = f.cnf_options; clauses = no_unit_clx }
-
-  (* let does_contain_pure_literal : t -> int option = fun f -> None *)
-  let does_contain_pure_literal l f = None
-end
 
 let log str = if debug_mode = 1 then Caml.Format.printf "%s\n" str
 
@@ -100,6 +58,67 @@ let parse_cnf ~path =
     (None, None)
 (* Base.Exn.protect  *)
 
+module CNFFormula = struct
+  type t = formula
+
+  let is_satisfiable : t -> bool = fun f -> List.length f.clauses = 0
+
+  let does_contain_empty_clause f =
+    let rec helper = function
+      | [] -> false
+      | hd :: tl -> if List.length hd = 0 then true else helper tl
+    in
+    helper f.clauses
+
+  let does_contain_unit_clause f =
+    let rec helper = function
+      | [] -> None
+      | hd :: tl -> if List.length hd = 1 then List.hd hd else helper tl
+    in
+    helper f.clauses
+
+  let substitute l f =
+    let no_pure_occurence =
+      List.filter f.clauses ~f:(fun cls ->
+          phys_equal cls (List.filter cls ~f:(fun lit -> not (lit = l))))
+    in
+    let no_occurence =
+      List.map no_pure_occurence ~f:(fun cls ->
+          List.filter cls ~f:(fun lit -> not (lit = -l)))
+    in
+    { cnf_options = f.cnf_options; clauses = no_occurence }
+
+  let unit_propagation l f =
+    let no_unit_clx =
+      List.filter f.clauses ~f:(fun cls ->
+          (not (List.length cls = 1)) || not (List.hd_exn cls = l))
+    in
+    substitute l { cnf_options = f.cnf_options; clauses = no_unit_clx }
+
+  (* let does_contain_pure_literal : t -> int option = fun f -> None *)
+  let get_pure_literals f =
+    let pure_lits = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
+    let all_lits = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
+    let _ =
+      List.iter f.clauses ~f:(fun cls ->
+          List.iter cls ~f:(fun lit ->
+              let _ =
+                match Hash_set.exists pure_lits ~f:(fun e -> e = -lit) with
+                | true -> Hash_set.remove pure_lits (-lit)
+                | false ->
+                    if not (Hash_set.exists all_lits ~f:(fun e -> e = lit)) then
+                      Hash_set.add pure_lits lit
+              in
+              Hash_set.add all_lits lit))
+    in
+    let _ = log_lst @@ List.map (Hash_set.to_list pure_lits) ~f:Int.to_string in
+    pure_lits
+end
+
 let main ~path =
-  let hdr, clx = parse_cnf ~path in
-  (hdr, clx)
+  match parse_cnf ~path with
+  | Some hdr, Some clx ->
+      let f = { cnf_options = hdr; clauses = clx } in
+      let _ = CNFFormula.get_pure_literals f in
+      Some f
+  | _, _ -> None
