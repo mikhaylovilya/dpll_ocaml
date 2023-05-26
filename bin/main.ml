@@ -62,25 +62,28 @@ let parse_cnf ~path =
 module CNFFormula = struct
   type t = formula
 
-  let is_satisfiable : t -> bool = fun f -> List.length f.clauses = 0
+  let is_satisfiable f = match f.clauses with [] -> true | _ -> false
+  (* List.length f.clauses = 0 *)
 
   let does_contain_empty_clause f =
     let rec helper = function
       | [] -> false
-      | hd :: tl -> (
-          (* if List.length hd = 0 then true else helper tl *)
-          match hd with [] -> true | _ -> helper tl)
+      | hd :: tl -> ( match hd with [] -> true | _ -> helper tl)
     in
     helper f.clauses
 
   let does_contain_unit_clause f =
-    let rec helper = function
-      | [] -> None
+    let rec helper clx acc =
+      match clx with
+      | [] -> ( match acc with [] -> None | lst -> Some lst)
       | hd :: tl -> (
-          (* if List.length hd = 1 then List.hd hd else helper tl *)
-          match hd with [ x ] -> Some x | _ -> helper tl)
+          match hd with [ x ] -> helper tl (x :: acc) | _ -> helper tl acc)
     in
-    helper f.clauses
+    helper f.clauses []
+
+  let eliminate_pures predicate f =
+    let no_pure_occurence = List.filter f.clauses ~f:predicate in
+    { cnf_options = f.cnf_options; clauses = no_pure_occurence }
 
   let substitute_pure l f =
     let no_pure_occurence =
@@ -88,9 +91,6 @@ module CNFFormula = struct
           match List.find cls ~f:(fun lit -> lit = l) with
           | None -> true
           | Some cls -> false)
-      (* List.length cls
-         = List.length (List.filter cls ~f:(fun lit -> not (lit = l)))) *)
-      (*todo: rewrite, length is O(n)*)
     in
     (* let _ = log (String.concat ~sep:" " [ "Substitute"; Int.to_string l ]) in *)
     (* let _ =
@@ -100,13 +100,7 @@ module CNFFormula = struct
     { cnf_options = f.cnf_options; clauses = no_pure_occurence }
 
   let substitute l f =
-    let no_pure_occurence =
-      substitute_pure l f
-      (* List.filter f.clauses ~f:(fun cls ->
-          List.length cls
-          = List.length (List.filter cls ~f:(fun lit -> not (lit = l)))) *)
-      (*todo: rewrite, length is O(n)*)
-    in
+    let no_pure_occurence = substitute_pure l f in
     let no_occurence =
       List.map no_pure_occurence.clauses ~f:(fun cls ->
           List.filter cls ~f:(fun lit -> not (lit = -l)))
@@ -118,14 +112,19 @@ module CNFFormula = struct
        in *)
     { cnf_options = f.cnf_options; clauses = no_occurence }
 
-  let unit_propagation l f =
-    let no_unit_clx =
-      List.filter f.clauses ~f:(fun cls ->
-          (not (List.length cls = 1)) || not (List.hd_exn cls = l))
-    in
-    substitute l { cnf_options = f.cnf_options; clauses = no_unit_clx }
+  let rec unit_propagation unit_literals f =
+    (* let no_unit_clx =
+         List.filter f.clauses ~f:(fun cls ->
+             (not (List.length cls = 1)) || not (List.hd_exn cls = l))
+       in *)
+    match List.hd unit_literals with
+    | None -> f
+    | Some l -> (
+        match List.tl unit_literals with
+        | None -> f
+        | Some new_unit_literals ->
+            unit_propagation new_unit_literals (substitute l f))
 
-  (* let does_contain_pure_literal : t -> int option = fun f -> None *)
   let get_pure_literals f =
     let pure_lits = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
     let all_lits = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
@@ -145,34 +144,61 @@ module CNFFormula = struct
     (* let _ = log_lst @@ List.map (Hash_set.to_list pure_lits) ~f:Int.to_string in *)
     pure_lits
 
-  let pure_literal_elimination l f = substitute_pure l f (*ok?*)
+  let min_elt hash =
+    let exception Found of int in
+    try
+      Hash_set.iter hash ~f:(fun x -> raise (Found x));
+      raise Caml.Not_found
+    with Found x -> x
+
+  let pure_literal_elimination pure_literals f =
+    (* try *)
+    (* let l = min_elt pure_literals in *)
+    let clause_intersects pure_literals cls =
+      let exception Found in
+      try
+        List.iter cls ~f:(fun lit ->
+            if Hash_set.mem pure_literals lit then raise Found);
+        false
+      with Found -> true
+    in
+    (* let _ = Hash_set.remove pure_literals l in *)
+    eliminate_pures (clause_intersects pure_literals) f
+  (* with Caml.Not_found -> f *)
+  (*ok?*)
+
   let choose f = List.hd_exn @@ List.hd_exn f.clauses
 end
 
 let solve f =
-  let pure_literals = CNFFormula.get_pure_literals f in
+  (* let pure_literals = CNFFormula.get_pure_literals f in *)
   (* let _ =  *)
-  let rec loop f pure_literals acc : cnf_result =
+  let rec loop f acc : cnf_result =
     if CNFFormula.is_satisfiable f then Sat acc
     else if CNFFormula.does_contain_empty_clause f then Unsat
     else
       match CNFFormula.does_contain_unit_clause f with
-      | Some l -> loop (CNFFormula.unit_propagation l f) pure_literals (l :: acc)
+      | Some unit_literals ->
+          loop
+            (CNFFormula.unit_propagation unit_literals f)
+            (List.append unit_literals acc)
       | None -> (
+          let pure_literals = CNFFormula.get_pure_literals f in
+          (* let _ = List.filter f.clauses ~f:(fun cls -> ) *)
           if not (Hash_set.is_empty pure_literals) then
-            let l = List.hd_exn @@ Hash_set.to_list pure_literals in
-            let _ = Hash_set.remove pure_literals l in
+            (* let l = min_elt pure_literals in *)
+            (* List.hd_exn @@ Hash_set.to_list pure_literals in *)
+            (* let _ = Hash_set.remove pure_literals l in *)
             loop
-              (CNFFormula.pure_literal_elimination l f)
-              pure_literals (l :: acc)
+              (CNFFormula.pure_literal_elimination pure_literals f)
+              (List.append (Hash_set.to_list pure_literals) acc)
           else
             let l = CNFFormula.choose f in
-            match loop (CNFFormula.substitute l f) pure_literals (l :: acc) with
-            | Unsat ->
-                loop (CNFFormula.substitute (-l) f) pure_literals (-l :: acc)
+            match loop (CNFFormula.substitute l f) (l :: acc) with
+            | Unsat -> loop (CNFFormula.substitute (-l) f) (-l :: acc)
             | Sat acc -> Sat acc)
   in
-  loop f pure_literals []
+  loop f []
 
 let print_model = function
   | None -> print_endline "Error during parsing file"
