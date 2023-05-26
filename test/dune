@@ -1,2 +1,3 @@
 (test
- (name dpll_ocaml))
+ (name test1)
+ (libraries dpll_ocaml))

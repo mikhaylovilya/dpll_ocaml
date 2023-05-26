@@ -16,20 +16,38 @@ module CNFFormula = struct
 
   let does_contain_empty_clause f =
     let rec helper = function
-      | [] -> false (*None actually*)
+      | [] -> false
       | hd :: tl -> if List.length hd = 0 then true else helper tl
     in
     helper f.clauses
 
   let does_contain_unit_clause f =
     let rec helper = function
-      | [] -> None (*None actually*)
-      | hd :: tl ->
-          if List.length hd = 1 then List.hd hd (*or Some hd*) else helper tl
+      | [] -> None
+      | hd :: tl -> if List.length hd = 1 then List.hd hd else helper tl
     in
     helper f.clauses
 
-  let does_contain_pure_literal : t -> int option = fun f -> None
+  let substitute l f =
+    let no_pure_appearence =
+      List.filter f.clauses ~f:(fun cls ->
+          phys_equal cls (List.filter cls ~f:(fun lit -> not (lit = l))))
+    in
+    let no_appearence =
+      List.map no_pure_appearence ~f:(fun cls ->
+          List.filter cls ~f:(fun lit -> not (lit = -l)))
+    in
+    { cnf_options = f.cnf_options; clauses = no_appearence }
+
+  let unit_propagation l f =
+    let no_unit_clx =
+      List.filter f.clauses ~f:(fun cls ->
+          (not (List.length cls = 1)) || not (List.hd_exn cls = l))
+    in
+    substitute l { cnf_options = f.cnf_options; clauses = no_unit_clx }
+
+  (* let does_contain_pure_literal : t -> int option = fun f -> None *)
+  let does_contain_pure_literal l f = None
 end
 
 let log str = if debug_mode = 1 then Caml.Format.printf "%s\n" str
@@ -82,8 +100,6 @@ let parse_cnf ~path =
     (None, None)
 (* Base.Exn.protect  *)
 
-let main () =
-  let path = "./TestFiles/example.txt" in
-  parse_cnf ~path
-
-let _ = main ()
+let main ~path =
+  let hdr, clx = parse_cnf ~path in
+  (hdr, clx)
