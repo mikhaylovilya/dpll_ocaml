@@ -81,10 +81,6 @@ module CNFFormula = struct
     in
     helper f.clauses []
 
-  let eliminate_pures predicate f =
-    let no_pure_occurence = List.filter f.clauses ~f:predicate in
-    { cnf_options = f.cnf_options; clauses = no_pure_occurence }
-
   let substitute_pure l f =
     let no_pure_occurence =
       List.filter f.clauses ~f:(fun cls ->
@@ -151,54 +147,53 @@ module CNFFormula = struct
       raise Caml.Not_found
     with Found x -> x
 
-  let pure_literal_elimination pure_literals f =
-    (* try *)
-    (* let l = min_elt pure_literals in *)
-    let clause_intersects pure_literals cls =
-      let exception Found in
-      try
-        List.iter cls ~f:(fun lit ->
-            if Hash_set.mem pure_literals lit then raise Found);
-        false
-      with Found -> true
-    in
-    (* let _ = Hash_set.remove pure_literals l in *)
-    eliminate_pures (clause_intersects pure_literals) f
-  (* with Caml.Not_found -> f *)
+  let rec pure_literal_elimination pure_literals f =
+    try
+      let l = min_elt pure_literals in
+      let _ = Hash_set.remove pure_literals l in
+      pure_literal_elimination pure_literals (substitute_pure l f)
+    with Caml.Not_found -> f
   (*ok?*)
 
   let choose f = List.hd_exn @@ List.hd_exn f.clauses
 end
 
+type stats = { mutable splits : int }
+
+let stats = { splits = 0 }
+
 let solve f =
-  (* let pure_literals = CNFFormula.get_pure_literals f in *)
-  (* let _ =  *)
-  let rec loop f acc : cnf_result =
-    if CNFFormula.is_satisfiable f then Sat acc
-    else if CNFFormula.does_contain_empty_clause f then Unsat
-    else
-      match CNFFormula.does_contain_unit_clause f with
-      | Some unit_literals ->
-          loop
-            (CNFFormula.unit_propagation unit_literals f)
-            (List.append unit_literals acc)
-      | None -> (
-          let pure_literals = CNFFormula.get_pure_literals f in
-          (* let _ = List.filter f.clauses ~f:(fun cls -> ) *)
-          if not (Hash_set.is_empty pure_literals) then
-            (* let l = min_elt pure_literals in *)
-            (* List.hd_exn @@ Hash_set.to_list pure_literals in *)
-            (* let _ = Hash_set.remove pure_literals l in *)
-            loop
-              (CNFFormula.pure_literal_elimination pure_literals f)
-              (List.append (Hash_set.to_list pure_literals) acc)
-          else
-            let l = CNFFormula.choose f in
-            match loop (CNFFormula.substitute l f) (l :: acc) with
-            | Unsat -> loop (CNFFormula.substitute (-l) f) (-l :: acc)
-            | Sat acc -> Sat acc)
+  let rec loop fs : cnf_result =
+    (* Stdio.printf "Targets: %d\n" (List.length fs); *)
+    (* Stdio.printf "splits = %d\n" stats.splits; *)
+    match fs with
+    | [] -> Unsat
+    | f :: fs -> (
+        if CNFFormula.is_satisfiable f then Sat []
+        else if CNFFormula.does_contain_empty_clause f then loop fs
+        else
+          match CNFFormula.does_contain_unit_clause f with
+          | Some unit_literals ->
+              loop (CNFFormula.unit_propagation unit_literals f :: fs)
+              (* (List.append unit_literals acc) *)
+          | None ->
+              let pure_literals = CNFFormula.get_pure_literals f in
+              (* let _ = List.filter f.clauses ~f:(fun cls -> ) *)
+              if not (Hash_set.is_empty pure_literals) then
+                (* let l = min_elt pure_literals in *)
+                (* List.hd_exn @@ Hash_set.to_list pure_literals in *)
+                (* let _ = Hash_set.remove pure_literals l in *)
+                loop (CNFFormula.pure_literal_elimination pure_literals f :: fs)
+                (* (List.append (Hash_set.to_list pure_literals) acc) *)
+              else
+                let l = CNFFormula.choose f in
+                stats.splits <- stats.splits + 1;
+                loop
+                  (CNFFormula.substitute l f
+                  :: CNFFormula.substitute (-l) f
+                  :: fs))
   in
-  loop f []
+  loop [ f ]
 
 let print_model = function
   | None -> print_endline "Error during parsing file"
