@@ -4,8 +4,7 @@ on:
       - "main"
 
 env:
-  OPAMROOT: /home/user/.opam
-  OPAMYES: true
+  OPAMROOT: /home/opam/.opam
 
 jobs:
   build:
@@ -17,7 +16,8 @@ jobs:
      
     runs-on: ${{ matrix.os }}
     container:
-      image: kakadu18/ocaml:fp2022
+      image: ocaml/opam:ubuntu-20.04-ocaml-4.14
+      options: --user root
 
     steps:
       # - run: opam --version
@@ -40,5 +40,6 @@ jobs:
     # - run: sudo apt install software-properties-common --yes
     # - run: sudo apt update
       # - run: eval $(opam env)
+      - run: opam install . --deps-only --with-test
       - run: opam exec -- dune build
       # - run: opam exec -- dune runtest
