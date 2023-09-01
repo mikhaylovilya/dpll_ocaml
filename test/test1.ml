@@ -11,7 +11,6 @@ let path = "../TestFiles/"
 
    (* let _ = List.iter list_txt ~f: *)
    let _ = List.iter (fun x -> print_model @@ main ~path:x) list_txt *)
-
 let _ = print_model @@ main ~path:(path ^ "sat_20_91.txt")
 let _ = print_model @@ main ~path:(path ^ "sat_50_80.txt")
 let _ = print_model @@ main ~path:(path ^ "sat_50_170.txt")

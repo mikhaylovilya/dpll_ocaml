@@ -47,9 +47,13 @@ module CNFFormula = struct
   let contains_empty_clause f =
     let rec helper = function
       | [] -> false
-      | hd :: tl -> ( match hd with [] -> true | _ -> helper tl)
+      | hd :: tl ->
+        (match hd with
+         | [] -> true
+         | _ -> helper tl)
     in
     helper f.clauses
+  ;;
 
   (* let rec find_units_pures1 f units pures all =
      (* let rec helper f acc = *)
@@ -260,6 +264,7 @@ let solve f =
           | Sat acc -> Sat acc)
   in
   loop f []
+;;
 
 let print_model = function
   | None -> print_endline "Error during parsing file"
