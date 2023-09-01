@@ -5,6 +5,8 @@
   (flags
    (:standard -w -27-38-69-38-32))))
 
+; -g for debug?
+
 (library
  (public_name dpll_ocaml)
  (name main)

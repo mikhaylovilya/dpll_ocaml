@@ -1,55 +1,69 @@
 open Base
 open Stdio
 
-type cnf_options = { vars_num : int; cls_num : int }
-type formula = { cnf_options : cnf_options; clauses : int list list }
-type cnf_result = Unsat | Sat of int list
+type cnf_options =
+  { vars_num : int
+  ; cls_num : int
+  }
+
+type formula =
+  { cnf_options : cnf_options
+  ; clauses : int list list
+  }
+
+type cnf_result =
+  | Unsat
+  | Sat of int list
 
 let parse_cnf ~path =
   let ic = In_channel.create path in
   let parse_headers () =
     match In_channel.input_line ic with
     | None -> None
-    | Some x -> (
-        match String.split_on_chars ~on:[ ' ' ] x with
-        | [ "p"; "cnf"; vars_num; cls_num ] ->
-            Some
-              {
-                vars_num = Int.of_string vars_num;
-                cls_num = Int.of_string cls_num;
-              }
-        | _ -> None)
+    | Some x ->
+      (match String.split_on_chars ~on:[ ' ' ] x with
+       | [ "p"; "cnf"; vars_num; cls_num ] ->
+         Some { vars_num = Int.of_string vars_num; cls_num = Int.of_string cls_num }
+       | _ -> None)
   in
   let rec parse_clauses acc =
     match In_channel.input_line ic with
     | None -> Some acc
-    | Some x -> (
-        match List.tl @@ List.rev @@ String.split_on_chars ~on:[ ' ' ] x with
-        | None -> None
-        | Some line ->
-            parse_clauses @@ (List.map line ~f:(fun s -> Int.of_string s) :: acc)
-        )
+    | Some x ->
+      (match List.tl @@ List.rev @@ String.split_on_chars ~on:[ ' ' ] x with
+       | None -> None
+       | Some line -> parse_clauses @@ (List.map line ~f:(fun s -> Int.of_string s) :: acc))
   in
   try
     let opts = parse_headers () in
     let cls = parse_clauses [] in
     let _ = In_channel.close ic in
-    (opts, cls)
-  with Failure e ->
+    opts, cls
+  with
+  | Failure e ->
     In_channel.close ic;
-    (None, None)
+    None, None
+;;
 
 module CNFFormula = struct
   type t = formula
 
-  let is_satisfiable f = match f.clauses with [] -> true | _ -> false
+  let is_satisfiable f =
+    match f.clauses with
+    | [] -> true
+    | _ -> false
+  ;;
 
   let contains_empty_clause f =
     let rec helper = function
       | [] -> false
-      | hd :: tl -> ( match hd with [] -> true | _ -> helper tl)
+      | hd :: tl ->
+        (match hd with
+         | [] -> true
+         | _ -> helper tl)
     in
     helper f.clauses
+  ;;
 
   (* let rec find_units_pures1 f units pures all =
      (* let rec helper f acc = *)
@@ -74,24 +88,23 @@ module CNFFormula = struct
     let units = Hash_set.create ~size:f.cnf_options.cls_num (module Int) in
     let () =
       List.iter f.clauses ~f:(fun cl ->
-          let () =
-            List.iter cl ~f:(fun l ->
-                let () =
-                  match Hash_set.mem pures (-l) with
-                  | true -> Hash_set.remove pures (-l)
-                  | false when not (Hash_set.mem all l) -> Hash_set.add pures l
-                  | _ -> ()
-                in
-                Hash_set.add all l)
-          in
-          match cl with
-          | [ l ]
-            when (not (Hash_set.mem units l)) && not (Hash_set.mem units (-l))
-            ->
-              Hash_set.strict_add_exn units l
-          | _ -> ())
+        let () =
+          List.iter cl ~f:(fun l ->
+            let () =
+              match Hash_set.mem pures (-l) with
+              | true -> Hash_set.remove pures (-l)
+              | false when not (Hash_set.mem all l) -> Hash_set.add pures l
+              | _ -> ()
+            in
+            Hash_set.add all l)
+        in
+        match cl with
+        | [ l ] when (not (Hash_set.mem units l)) && not (Hash_set.mem units (-l)) ->
+          Hash_set.strict_add_exn units l
+        | _ -> ())
     in
-    (units, pures)
+    units, pures
+  ;;
 
   (* let%test "pures" =
      let f = [ [ 2 ]; [ 3; 5; -2 ]; [ 4 ] ] in
@@ -100,12 +113,12 @@ module CNFFormula = struct
      Hash_set.equal expected pures *)
 
   let eliminate_pures f pures =
-    {
-      f with
+    { f with
       clauses =
         List.rev_filter f.clauses ~f:(fun cl ->
-            not (List.exists cl ~f:(fun l -> Hash_set.mem pures l)));
+          not (List.exists cl ~f:(fun l -> Hash_set.mem pures l)))
     }
+  ;;
 
   (* let%test "eliminate pures" =
      let f = [ [ 2 ]; [ 3; 5; -2 ]; [ 4; -2 ] ] in
@@ -115,17 +128,18 @@ module CNFFormula = struct
      Stdlib.(actual = expected) *)
 
   let substitute f lit =
-    {
-      f with
+    { f with
       clauses =
         List.rev_filter_map f.clauses ~f:(fun cl ->
-            let exception Found of int in
-            try
-              Some
-                (List.rev_filter cl ~f:(fun l ->
-                     if l = lit then raise (Found l) else not (l = -lit)))
-            with Found l -> None);
+          let exception Found of int in
+          try
+            Some
+              (List.rev_filter cl ~f:(fun l ->
+                 if l = lit then raise (Found l) else not (l = -lit)))
+          with
+          | Found l -> None)
     }
+  ;;
 
   (* let%test "subs" =
      let f = [ [ 2; -5 ]; [ 3; 5; -2 ]; [ 4; -2 ] ] in
@@ -134,18 +148,20 @@ module CNFFormula = struct
      Stdlib.(actual = expected) *)
 
   let unit_propagation f units =
-    {
-      f with
+    { f with
       clauses =
         List.rev_filter_map f.clauses ~f:(fun cl ->
-            let exception Found of int in
-            try
-              Some
-                (List.rev_filter cl ~f:(fun l ->
-                     if Hash_set.mem units l then raise (Found l)
-                     else not (Hash_set.mem units (-l))))
-            with Found l -> None);
+          let exception Found of int in
+          try
+            Some
+              (List.rev_filter cl ~f:(fun l ->
+                 if Hash_set.mem units l
+                 then raise (Found l)
+                 else not (Hash_set.mem units (-l))))
+          with
+          | Found l -> None)
     }
+  ;;
 
   (* let hash_set_list () =
      let rec range a b acc = if a > b then acc else range (a + 1) b (a :: acc) in
@@ -227,53 +243,56 @@ let solve f =
   let exception Unsat_exn in
   let rec loop f acc : cnf_result =
     let rec simplify f acc =
-      if CNFFormula.is_satisfiable f then raise (Sat_exn acc)
-      else if CNFFormula.contains_empty_clause f then raise Unsat_exn
-      else
+      if CNFFormula.is_satisfiable f
+      then raise (Sat_exn acc)
+      else if CNFFormula.contains_empty_clause f
+      then raise Unsat_exn
+      else (
         let units, pures = CNFFormula.find_units_pures f in
-        match (Hash_set.is_empty units, Hash_set.is_empty pures) with
+        match Hash_set.is_empty units, Hash_set.is_empty pures with
         | false, false ->
-            let f = CNFFormula.unit_propagation f units in
-            simplify
-              (CNFFormula.eliminate_pures f pures)
-              (Hash_set.to_list units @ Hash_set.to_list pures @ acc)
+          let f = CNFFormula.unit_propagation f units in
+          simplify
+            (CNFFormula.eliminate_pures f pures)
+            (Hash_set.to_list units @ Hash_set.to_list pures @ acc)
         | false, true ->
-            simplify
-              (CNFFormula.unit_propagation f units)
-              (Hash_set.to_list units @ acc)
+          simplify (CNFFormula.unit_propagation f units) (Hash_set.to_list units @ acc)
         | true, false ->
-            simplify
-              (CNFFormula.eliminate_pures f pures)
-              (Hash_set.to_list pures @ acc)
-        | true, true -> (f, acc)
+          simplify (CNFFormula.eliminate_pures f pures) (Hash_set.to_list pures @ acc)
+        | true, true -> f, acc)
     in
     match simplify f acc with
     | exception Sat_exn res -> Sat res
     | exception Unsat_exn -> Unsat
-    | f, acc -> (
-        if CNFFormula.is_satisfiable f then Sat acc
-        else if CNFFormula.contains_empty_clause f then Unsat
-        else
-          let l = CNFFormula.choose f in
-          match loop (CNFFormula.substitute f l) (l :: acc) with
-          | Unsat -> loop (CNFFormula.substitute f (-l)) (-l :: acc)
-          | Sat acc -> Sat acc)
+    | f, acc ->
+      if CNFFormula.is_satisfiable f
+      then Sat acc
+      else if CNFFormula.contains_empty_clause f
+      then Unsat
+      else (
+        let l = CNFFormula.choose f in
+        match loop (CNFFormula.substitute f l) (l :: acc) with
+        | Unsat -> loop (CNFFormula.substitute f (-l)) (-l :: acc)
+        | Sat acc -> Sat acc)
   in
   loop f []
+;;
 
 let print_model = function
   | None -> print_endline "Error during parsing file"
-  | Some cnf_res -> (
-      match cnf_res with
-      | Unsat -> print_endline "\nUnsat"
-      | Sat res ->
-          let _ = print_endline "\nSat" in
-          List.iter ~f:(fun model_lit -> printf "%d " model_lit) res)
+  | Some cnf_res ->
+    (match cnf_res with
+     | Unsat -> print_endline "\nUnsat"
+     | Sat res ->
+       let _ = print_endline "\nSat" in
+       List.iter ~f:(fun model_lit -> printf "%d " model_lit) res)
+;;
 
 let main ~path =
   match parse_cnf ~path with
   | Some opts, Some clx -> Some (solve { cnf_options = opts; clauses = clx })
   | _ -> None
+;;
 
 (* let%test "UNSAT" =
      match main ~path:"/home/cy/Desktop/ocaml-rep/dpll_ocaml/TestFiles/unsat_1_2.txt" with
