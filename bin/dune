@@ -8,4 +8,7 @@
 (library
  (public_name dpll_ocaml)
  (name main)
- (libraries base stdio))
+ (libraries base stdio)
+ (inline_tests)
+ (preprocess
+  (pps ppx_inline_test)))
