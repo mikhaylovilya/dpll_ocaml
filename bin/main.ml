@@ -147,22 +147,22 @@ module CNFFormula = struct
             with Found l -> None);
     }
 
-  let hash_set_list () =
-    let rec range a b acc = if a > b then acc else range (a + 1) b (a :: acc) in
-    let a = 1 in
-    let b = 10000000 in
-    let lst = range a b [] in
-    let set = Hash_set.of_list (module Int) lst in
-    let elt = 56708 in
-    let start_time_list = Stdlib.Sys.time () in
-    (* let _  *)
-    let _ = List.exists ~f:(fun e -> e = elt) lst in
-    let finish_time_list = Stdlib.Sys.time () in
-    let _ = printf "List.exists: %f\n" (finish_time_list -. start_time_list) in
-    let start_time_set = Stdlib.Sys.time () in
-    let fl = Hash_set.mem set elt in
-    let finish_time_set = Stdlib.Sys.time () in
-    printf "Hash_set.mem: %f\n, %b" (finish_time_set -. start_time_set) fl
+  (* let hash_set_list () =
+     let rec range a b acc = if a > b then acc else range (a + 1) b (a :: acc) in
+     let a = 1 in
+     let b = 10000000 in
+     let lst = range a b [] in
+     let set = Hash_set.of_list (module Int) lst in
+     let elt = 56708 in
+     let start_time_list = Stdlib.Sys.time () in
+     (* let _  *)
+     let _ = List.exists ~f:(fun e -> e = elt) lst in
+     let finish_time_list = Stdlib.Sys.time () in
+     let _ = printf "List.exists: %f\n" (finish_time_list -. start_time_list) in
+     let start_time_set = Stdlib.Sys.time () in
+     let fl = Hash_set.mem set elt in
+     let finish_time_set = Stdlib.Sys.time () in
+     printf "Hash_set.mem: %f\n, %b" (finish_time_set -. start_time_set) fl *)
 
   (* let%test "unit propagation1" =
      let f = [ [ 2 ]; [ 3 ]; [ 3; 5; -2 ]; [ 4; -2 ]; [ 5; 4; -3 ] ] in
@@ -197,27 +197,27 @@ module CNFFormula = struct
        | Found x -> x
      ;; *)
 
-  let choose1 f =
-    let occurences = Hashtbl.create (module Int) in
-    List.iter f.clauses ~f:(fun cls ->
-        List.iter cls ~f:(fun lit ->
-            match Hashtbl.find occurences (abs lit) with
-            | Some v -> Hashtbl.set occurences ~key:(abs lit) ~data:(v + 1)
-            | None -> Hashtbl.add_exn occurences ~key:(abs lit) ~data:1));
-    let elt = List.max_elt (Hashtbl.data occurences) ~compare:Int.compare in
-    match elt with Some x -> x | None -> raise (Failure "")
+  (* let choose1 f =
+       let occurences = Hashtbl.create (module Int) in
+       List.iter f.clauses ~f:(fun cls ->
+           List.iter cls ~f:(fun lit ->
+               match Hashtbl.find occurences (abs lit) with
+               | Some v -> Hashtbl.set occurences ~key:(abs lit) ~data:(v + 1)
+               | None -> Hashtbl.add_exn occurences ~key:(abs lit) ~data:1));
+       let elt = List.max_elt (Hashtbl.data occurences) ~compare:Int.compare in
+       match elt with Some x -> x | None -> raise (Failure "")
 
-  let%test "choose1 1" =
-    let f =
-      {
-        cnf_options = { vars_num = 0; cls_num = 0 };
-        clauses = [ [ 3; -2; 1; -4 ]; [ -1 ]; [ -2; 1; -4 ]; [ 3 ] ];
-      }
-    in
-    let actual = choose1 f in
-    (* Hash_set.iter units ~f:(fun x -> Caml.print_int x); *)
-    let expected = 1 in
-    Stdlib.(actual = expected)
+     let%test "choose1 1" =
+       let f =
+         {
+           cnf_options = { vars_num = 0; cls_num = 0 };
+           clauses = [ [ 3; -2; 1; -4 ]; [ -1 ]; [ -2; 1; -4 ]; [ 3 ] ];
+         }
+       in
+       let actual = choose1 f in
+       (* Hash_set.iter units ~f:(fun x -> Caml.print_int x); *)
+       let expected = 1 in
+       Stdlib.(actual = expected) *)
 
   let choose f = List.hd_exn @@ List.hd_exn f.clauses
 end
