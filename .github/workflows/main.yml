@@ -4,7 +4,8 @@ on:
       - "main"
 
 env:
-  OPAMROOT: /home/opam/.opam
+  OPAMROOT: /home/user/.opam
+  OPAMYES: true
 
 jobs:
   build:
