@@ -1,9 +1,6 @@
 open Base
 open Stdio
 
-let debug_mode = 1
-
-(* type mystruct = int list list *)
 type cnf_options =
   { vars_num : int
   ; cls_num : int
@@ -18,34 +15,6 @@ type cnf_result =
   | Unsat
   | Sat of int list
 
-let print_lst lst =
-  Caml.Format.printf "%s\n"
-  @@ List.fold_right lst ~f:(fun x acc -> String.concat ~sep:" " [ x; acc ]) ~init:""
-;;
-
-let log_str str = if debug_mode = 1 then Caml.Format.printf "%s\n" str
-let log_int intg = if debug_mode = 1 then Caml.Format.printf "%d\n" intg
-
-let log_lst lst =
-  if debug_mode = 1
-  then
-    log_str @@ String.concat @@ List.intersperse ~sep:" " @@ List.map lst ~f:Int.to_string
-;;
-
-let log_lst_lst lst_lst =
-  if debug_mode = 1
-  then
-    (* log_str @@ String.concat ~sep:" | " @@ List.map (List.concat lst_lst) ~f:Int.to_string *)
-    log_str
-    @@ String.concat
-    @@ List.concat
-    @@ List.map lst_lst ~f:(fun cls ->
-         ([ "(" ] @ List.intersperse ~sep:" " @@ List.map cls ~f:Int.to_string) @ [ ")" ])
-;;
-
-let log_set set = if debug_mode = 1 then log_lst @@ Hash_set.to_list set
-let insert ~cls ~acc = cls :: acc
-
 let parse_cnf ~path =
   let ic = In_channel.create path in
   let parse_headers () =
@@ -54,8 +23,6 @@ let parse_cnf ~path =
     | Some x ->
       (match String.split_on_chars ~on:[ ' ' ] x with
        | [ "p"; "cnf"; vars_num; cls_num ] ->
-         (* let _ = log "header" in *)
-         (* let _ = log_lst [ vars_num; cls_num ] in *)
          Some { vars_num = Int.of_string vars_num; cls_num = Int.of_string cls_num }
        | _ -> None)
   in
@@ -65,25 +32,18 @@ let parse_cnf ~path =
     | Some x ->
       (match List.tl @@ List.rev @@ String.split_on_chars ~on:[ ' ' ] x with
        | None -> None
-       | Some line ->
-         (* let _ = log "clause" in *)
-         (* let _ = log_lst line in *)
-         parse_clauses @@ insert ~cls:(List.map line ~f:(fun s -> Int.of_string s)) ~acc)
+       | Some line -> parse_clauses @@ (List.map line ~f:(fun s -> Int.of_string s) :: acc))
   in
   try
-    let hdr = parse_headers () in
+    let opts = parse_headers () in
     let cls = parse_clauses [] in
     let _ = In_channel.close ic in
-    hdr, cls
+    opts, cls
   with
-  (* | End_of_file -> None *)
   | Failure e ->
-    let _ = log_str e in
-    let _ = In_channel.close ic in
+    In_channel.close ic;
     None, None
 ;;
-
-(* Base.Exn.protect  *)
 
 module CNFFormula = struct
   type t = formula
@@ -94,9 +54,7 @@ module CNFFormula = struct
     | _ -> false
   ;;
 
-  (* List.length f.clauses = 0 *)
-
-  let does_contain_empty_clause f =
+  let contains_empty_clause f =
     let rec helper = function
       | [] -> false
       | hd :: tl ->
@@ -107,156 +65,215 @@ module CNFFormula = struct
     helper f.clauses
   ;;
 
-  let does_contain_unit_clause f =
-    let rec helper clx acc =
-      match clx with
-      | [] ->
-        (match acc with
-         | [] -> None
-         | lst -> Some lst)
-      | hd :: tl ->
-        (match hd with
-         | [ x ] -> helper tl (x :: acc) (*serach for abs(x)*)
-         | _ -> helper tl acc)
+  (* let rec find_units_pures1 f units pures all =
+     (* let rec helper f acc = *)
+     match f.clauses with
+     | [] -> (units, pures)
+     | cls :: clx -> (
+         match cls with
+         | [ l ] ->
+             find_units_pures1 { f with clauses = clx } (l :: units) pures
+               (l :: all)
+         | cls ->
+             let new_pures =
+               List.rev_filter_map cls ~f:(fun lit ->
+                   if List.exists pures ~f:(fun elt -> elt = -lit) then None
+                   else )
+             in
+             find_units_pures1 { f with clauses = clx } units pures (l :: all)) *)
+
+  let find_units_pures f =
+    let pures = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
+    let all = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
+    let units = Hash_set.create ~size:f.cnf_options.cls_num (module Int) in
+    let () =
+      List.iter f.clauses ~f:(fun cl ->
+        let () =
+          List.iter cl ~f:(fun l ->
+            let () =
+              match Hash_set.mem pures (-l) with
+              | true -> Hash_set.remove pures (-l)
+              | false when not (Hash_set.mem all l) -> Hash_set.add pures l
+              | _ -> ()
+            in
+            Hash_set.add all l)
+        in
+        match cl with
+        | [ l ] when (not (Hash_set.mem units l)) && not (Hash_set.mem units (-l)) ->
+          Hash_set.strict_add_exn units l
+        | _ -> ())
     in
-    helper f.clauses []
+    units, pures
   ;;
 
-  let eliminate_pures predicate f =
-    let no_pure_occurence = List.filter f.clauses ~f:predicate in
-    log_str "no_pure_occurence literals";
-    log_lst_lst no_pure_occurence;
-    { cnf_options = f.cnf_options; clauses = no_pure_occurence }
+  (* let%test "pures" =
+     let f = [ [ 2 ]; [ 3; 5; -2 ]; [ 4 ] ] in
+     let _, pures = find_units_pures f in
+     let expected = Hash_set.of_list (module Int) [ 3; 5; 4 ] in
+     Hash_set.equal expected pures *)
+
+  let eliminate_pures f pures =
+    { f with
+      clauses =
+        List.rev_filter f.clauses ~f:(fun cl ->
+          not (List.exists cl ~f:(fun l -> Hash_set.mem pures l)))
+    }
   ;;
 
-  (* let substitute_pure l f =
-    let no_pure_occurence =
-      List.filter f.clauses ~f:(fun cls ->
-        match List.find cls ~f:(fun lit -> lit = l) with
-        | None -> true
-        | Some cls -> false)
-    in
-    { cnf_options = f.cnf_options; clauses = no_pure_occurence }
-  ;; *)
+  (* let%test "eliminate pures" =
+     let f = [ [ 2 ]; [ 3; 5; -2 ]; [ 4; -2 ] ] in
+     let _, pures = find_units_pures f in
+     let expected = [ [ 2 ] ] in
+     let actual = eliminate_pures f pures in
+     Stdlib.(actual = expected) *)
 
-  let substitute l f =
-    log_str "Literal to substitute:";
-    log_int l;
-    let clause_intersects l cls =
-      let exception Found_other in
-      try
-        List.iter cls ~f:(fun lit -> if lit = l then raise Found_other);
-        true
-      with
-      | Found_other -> false
-    in
-    let no_pure_occurence = eliminate_pures (clause_intersects l) f in
-    (* let no_pure_occurence = substitute_pure l f in *)
-    (* log_str "no_pure_occurence literals: "; *)
-    (* let _ = log_lst_lst no_pure_occurence.clauses in *)
-    (* log_str "no_pure_occurence cls lengths: "; *)
-    (* let _ = log_lst @@ List.map no_pure_occurence.clauses ~f:List.length in *)
-    let no_occurence =
-      List.map no_pure_occurence.clauses ~f:(fun cls ->
-        List.filter cls ~f:(fun lit -> not (lit = -l)))
-    in
-    log_str "no_occurence literals: ";
-    let _ = log_lst_lst no_occurence in
-    (* log_str "no_occurence cls lengths: "; *)
-    (* let _ = log_lst @@ List.map no_occurence ~f:List.length in *)
-    { cnf_options = f.cnf_options; clauses = no_occurence }
+  let substitute f lit =
+    { f with
+      clauses =
+        List.rev_filter_map f.clauses ~f:(fun cl ->
+          let exception Found of int in
+          try
+            Some
+              (List.rev_filter cl ~f:(fun l ->
+                 if l = lit then raise (Found l) else not (l = -lit)))
+          with
+          | Found l -> None)
+    }
   ;;
 
-  let rec unit_propagation unit_literals f =
-    match unit_literals with
-    | [] -> f
-    | hd :: tl -> unit_propagation tl (substitute hd f)
+  (* let%test "subs" =
+     let f = [ [ 2; -5 ]; [ 3; 5; -2 ]; [ 4; -2 ] ] in
+     let actual = substitute f 2 in
+     let expected = [ [ 3; 5 ]; [ 4 ] ] in
+     Stdlib.(actual = expected) *)
+
+  let unit_propagation f units =
+    { f with
+      clauses =
+        List.rev_filter_map f.clauses ~f:(fun cl ->
+          let exception Found of int in
+          try
+            Some
+              (List.rev_filter cl ~f:(fun l ->
+                 if Hash_set.mem units l
+                 then raise (Found l)
+                 else not (Hash_set.mem units (-l))))
+          with
+          | Found l -> None)
+    }
   ;;
 
-  let get_pure_literals f =
-    let pure_lits = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
-    let all_lits = Hash_set.create ~size:f.cnf_options.vars_num (module Int) in
-    let _ =
-      List.iter f.clauses ~f:(fun cls ->
-        List.iter cls ~f:(fun lit ->
-          let _ =
-            match Hash_set.exists pure_lits ~f:(fun e -> e = -lit) with
-            | true -> Hash_set.remove pure_lits (-lit)
-            | false ->
-              if not (Hash_set.exists all_lits ~f:(fun e -> e = lit))
-              then Hash_set.add pure_lits lit
-          in
-          Hash_set.add all_lits lit))
-    in
-    pure_lits
-  ;;
+  (* let hash_set_list () =
+     let rec range a b acc = if a > b then acc else range (a + 1) b (a :: acc) in
+     let a = 1 in
+     let b = 10000000 in
+     let lst = range a b [] in
+     let set = Hash_set.of_list (module Int) lst in
+     let elt = 56708 in
+     let start_time_list = Stdlib.Sys.time () in
+     (* let _  *)
+     let _ = List.exists ~f:(fun e -> e = elt) lst in
+     let finish_time_list = Stdlib.Sys.time () in
+     let _ = printf "List.exists: %f\n" (finish_time_list -. start_time_list) in
+     let start_time_set = Stdlib.Sys.time () in
+     let fl = Hash_set.mem set elt in
+     let finish_time_set = Stdlib.Sys.time () in
+     printf "Hash_set.mem: %f\n, %b" (finish_time_set -. start_time_set) fl *)
 
-  let min_elt hash =
-    let exception Found of int in
-    try
-      Hash_set.iter hash ~f:(fun x -> raise (Found x));
-      raise Caml.Not_found
-    with
-    | Found x -> x
-  ;;
+  (* let%test "unit propagation1" =
+     let f = [ [ 2 ]; [ 3 ]; [ 3; 5; -2 ]; [ 4; -2 ]; [ 5; 4; -3 ] ] in
+     let units, _ = find_units_pures f in
+     let actual = unit_propagation f units in
+     let expected = [ [ 4; 5 ]; [ 4 ] ] in
+     (* let _ = List.iter ~f:(fun cls -> List.iter ~f:(fun l -> printf "%d " l) cls) actual in *)
+     Stdlib.(actual = expected) *)
 
-  let pure_literal_elimination pure_literals f =
-    (* try *)
-    (* let l = min_elt pure_literals in *)
-    let clause_intersects pure_literals cls =
-      let exception Found in
-      try
-        List.iter cls ~f:(fun lit -> if Hash_set.mem pure_literals lit then raise Found);
-        true
-      with
-      | Found -> false
-    in
-    (* let _ = Hash_set.remove pure_literals l in *)
-    eliminate_pures (clause_intersects pure_literals) f
-  ;;
+  (* let%test "unit propagation2" =
+     let f = [ [ 1 ]; [ -1 ] ] in
+     let units, _ = find_units_pures f in
+     (* Hash_set.iter units ~f:(fun x -> Caml.print_int x); *)
+     let actual = unit_propagation f units in
+     let expected = [ [] ] in
+     Stdlib.(actual = expected) *)
 
-  (* with Caml.Not_found -> f *)
-  (*ok?*)
+  (* let%test "unit propagation3" =
+     let f = [ [ 2 ]; [ -1 ]; [ -2; 1 ] ] in
+     let units, _ = find_units_pures f in
+     (* Hash_set.iter units ~f:(fun x -> Caml.print_int x); *)
+     let actual = unit_propagation f units in
+     let expected = [ [] ] in
+     Stdlib.(actual = expected) *)
+
+  (* let min_elt hash =
+       let exception Found of int in
+       try
+         Hash_set.iter hash ~f:(fun x -> raise (Found x));
+         raise Caml.Not_found
+       with
+       | Found x -> x
+     ;; *)
+
+  (* let choose1 f =
+       let occurences = Hashtbl.create (module Int) in
+       List.iter f.clauses ~f:(fun cls ->
+           List.iter cls ~f:(fun lit ->
+               match Hashtbl.find occurences (abs lit) with
+               | Some v -> Hashtbl.set occurences ~key:(abs lit) ~data:(v + 1)
+               | None -> Hashtbl.add_exn occurences ~key:(abs lit) ~data:1));
+       let elt = List.max_elt (Hashtbl.data occurences) ~compare:Int.compare in
+       match elt with Some x -> x | None -> raise (Failure "")
+
+     let%test "choose1 1" =
+       let f =
+         {
+           cnf_options = { vars_num = 0; cls_num = 0 };
+           clauses = [ [ 3; -2; 1; -4 ]; [ -1 ]; [ -2; 1; -4 ]; [ 3 ] ];
+         }
+       in
+       let actual = choose1 f in
+       (* Hash_set.iter units ~f:(fun x -> Caml.print_int x); *)
+       let expected = 1 in
+       Stdlib.(actual = expected) *)
 
   let choose f = List.hd_exn @@ List.hd_exn f.clauses
 end
 
 let solve f =
+  let exception Sat_exn of int list in
+  let exception Unsat_exn in
   let rec loop f acc : cnf_result =
-    log_str "Source formula:";
-    log_lst_lst f.clauses;
-    if CNFFormula.is_satisfiable f
-    then Sat acc
-    else if CNFFormula.does_contain_empty_clause f
-    then (
-      let _ = log_str "Unsat" in
-      Unsat)
-    else (
-      let f1, acc1, opt =
-        match CNFFormula.does_contain_unit_clause f with
-        | Some unit_literals ->
-          log_str "Unit literals:";
-          log_lst unit_literals;
-          CNFFormula.unit_propagation unit_literals f, List.append unit_literals acc, true
-        | None -> f, acc, false
-      in
-      let pure_literals = CNFFormula.get_pure_literals f1 in
-      log_str "Pure literals:";
-      log_set pure_literals;
-      if not (Hash_set.is_empty pure_literals)
-      then
-        loop
-          (CNFFormula.pure_literal_elimination pure_literals f1)
-          (List.append (Hash_set.to_list pure_literals) acc1)
-      else if opt
-      then loop f1 acc1
+    let rec simplify f acc =
+      if CNFFormula.is_satisfiable f
+      then raise (Sat_exn acc)
+      else if CNFFormula.contains_empty_clause f
+      then raise Unsat_exn
       else (
-        let l = CNFFormula.choose f1 in
-        log_str "Choose:";
-        log_int l;
-        match loop (CNFFormula.substitute l f1) (l :: acc1) with
-        | Unsat -> loop (CNFFormula.substitute (-l) f1) (-l :: acc1)
-        | Sat acc1 -> Sat acc1))
+        let units, pures = CNFFormula.find_units_pures f in
+        match Hash_set.is_empty units, Hash_set.is_empty pures with
+        | false, false ->
+          let f = CNFFormula.unit_propagation f units in
+          simplify
+            (CNFFormula.eliminate_pures f pures)
+            (Hash_set.to_list units @ Hash_set.to_list pures @ acc)
+        | false, true ->
+          simplify (CNFFormula.unit_propagation f units) (Hash_set.to_list units @ acc)
+        | true, false ->
+          simplify (CNFFormula.eliminate_pures f pures) (Hash_set.to_list pures @ acc)
+        | true, true -> f, acc)
+    in
+    match simplify f acc with
+    | exception Sat_exn res -> Sat res
+    | exception Unsat_exn -> Unsat
+    | f, acc ->
+      if CNFFormula.is_satisfiable f
+      then Sat acc
+      else if CNFFormula.contains_empty_clause f
+      then Unsat
+      else (
+        let l = CNFFormula.choose f in
+        match loop (CNFFormula.substitute f l) (l :: acc) with
+        | Unsat -> loop (CNFFormula.substitute f (-l)) (-l :: acc)
+        | Sat acc -> Sat acc)
   in
   loop f []
 ;;
@@ -265,16 +282,23 @@ let print_model = function
   | None -> print_endline "Error during parsing file"
   | Some cnf_res ->
     (match cnf_res with
-     | Unsat -> print_endline "Unsat"
+     | Unsat -> print_endline "\nUnsat"
      | Sat res ->
-       let _ = print_endline "Sat" in
-       print_lst @@ List.map res ~f:Int.to_string)
+       let _ = print_endline "\nSat" in
+       List.iter ~f:(fun model_lit -> printf "%d " model_lit) res)
 ;;
 
 let main ~path =
   match parse_cnf ~path with
-  | Some hdr, Some clx ->
-    let f = { cnf_options = hdr; clauses = clx } in
-    Some (solve f)
-  | _, _ -> None
+  | Some opts, Some clx -> Some (solve { cnf_options = opts; clauses = clx })
+  | _ -> None
 ;;
+
+(* let%test "UNSAT" =
+     match main ~path:"/home/cy/Desktop/ocaml-rep/dpll_ocaml/TestFiles/unsat_1_2.txt" with
+     | Some ans ->
+       (match ans with
+        | Sat _ -> false
+        | Unsat -> true)
+     | None -> true
+   ;; *)
