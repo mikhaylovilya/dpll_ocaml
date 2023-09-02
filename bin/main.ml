@@ -278,31 +278,58 @@ let solve f =
   loop f []
 ;;
 
-let print_model = function
+let abs_compare greater lesser =
+  if greater = lesser then 0 else if Int.abs greater > Int.abs lesser then 1 else -1
+;;
+
+let print_model_to_shell = function
   | None -> print_endline "Error during parsing file"
-  | Some cnf_res ->
+  | Some (cnf_res, _) ->
     (match cnf_res with
      | Unsat -> print_endline "\nUnsat"
      | Sat res ->
        let _ = print_endline "\nSat" in
-       List.iter
-         ~f:(fun model_lit -> printf "%d " model_lit)
-         (List.sort res ~compare:(fun greater lesser ->
-            if greater = lesser
-            then 0
-            else if Int.abs greater > Int.abs lesser
-            then 1
-            else -1));
+       List.iter ~f:(fun model_lit -> printf "%d " model_lit) res;
        print_endline "")
+;;
+
+let print_model_to_dimacs cnf_res_opt =
+  match cnf_res_opt with
+  | None -> print_endline "error during parsing cnf"
+  | Some (cnf_res, path) ->
+    let oc =
+      Out_channel.create
+        ~append:true
+        (String.concat [ "dpll_ocaml_dimacs_"; Caml.Filename.basename path ])
+    in
+    (match cnf_res with
+     | Unsat -> print_endline "Unsat"
+     | Sat res ->
+       let ic = In_channel.create path in
+       let src_cnf = In_channel.input_all ic in
+       let _ = Out_channel.output_string oc src_cnf in
+       let _ =
+         List.iter
+           ~f:(fun model_lit ->
+             Out_channel.output_string
+               oc
+               (String.concat [ "\n"; Int.to_string model_lit; " 0" ]))
+           res
+       in
+       In_channel.close ic);
+    Out_channel.close oc
 ;;
 
 let main ~path =
   match parse_cnf ~path with
-  | Some opts, Some clx -> Some (solve { cnf_options = opts; clauses = clx })
+  | Some opts, Some clx ->
+    (match solve { cnf_options = opts; clauses = clx } with
+     | Sat cnf_res -> Some (Sat (List.sort cnf_res ~compare:abs_compare), path)
+     | Unsat -> Some (Unsat, path))
   | _ -> None
 ;;
 
-let _ = print_model @@ main ~path:(Sys.get_argv ()).(1)
+let _ = print_model_to_dimacs @@ main ~path:(Sys.get_argv ()).(1)
 
 (* let%test "UNSAT" =
      match main ~path:"/home/cy/Desktop/ocaml-rep/dpll_ocaml/TestFiles/unsat_1_2.txt" with
