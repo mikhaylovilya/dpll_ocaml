@@ -300,7 +300,7 @@ let print_model_to_dimacs cnf_res_opt =
     let oc =
       Out_channel.create
         ~append:true
-        (String.concat [ "dpll_ocaml_dimacs_"; Caml.Filename.basename path ])
+        (String.concat [ "dpll_ocaml_dimacs_"; Filename.basename path ])
     in
     (match cnf_res with
      | Unsat -> print_endline "Unsat"
