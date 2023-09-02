@@ -48,7 +48,7 @@ let parse_cnf ~path =
 module CNFFormula = struct
   type t = formula
 
-  let is_satisfiable f =
+  let is_empty f =
     match f.clauses with
     | [] -> true
     | _ -> false
@@ -243,7 +243,7 @@ let solve f =
   let exception Unsat_exn in
   let rec loop f acc : cnf_result =
     let rec simplify f acc =
-      if CNFFormula.is_satisfiable f
+      if CNFFormula.is_empty f
       then raise (Sat_exn acc)
       else if CNFFormula.contains_empty_clause f
       then raise Unsat_exn
@@ -265,7 +265,7 @@ let solve f =
     | exception Sat_exn res -> Sat res
     | exception Unsat_exn -> Unsat
     | f, acc ->
-      if CNFFormula.is_satisfiable f
+      if CNFFormula.is_empty f
       then Sat acc
       else if CNFFormula.contains_empty_clause f
       then Unsat
@@ -285,7 +285,15 @@ let print_model = function
      | Unsat -> print_endline "\nUnsat"
      | Sat res ->
        let _ = print_endline "\nSat" in
-       List.iter ~f:(fun model_lit -> printf "%d " model_lit) res)
+       List.iter
+         ~f:(fun model_lit -> printf "%d " model_lit)
+         (List.sort res ~compare:(fun greater lesser ->
+            if greater = lesser
+            then 0
+            else if Int.abs greater > Int.abs lesser
+            then 1
+            else -1));
+       print_endline "")
 ;;
 
 let main ~path =
@@ -293,6 +301,8 @@ let main ~path =
   | Some opts, Some clx -> Some (solve { cnf_options = opts; clauses = clx })
   | _ -> None
 ;;
+
+let _ = print_model @@ main ~path:(Sys.get_argv ()).(1)
 
 (* let%test "UNSAT" =
      match main ~path:"/home/cy/Desktop/ocaml-rep/dpll_ocaml/TestFiles/unsat_1_2.txt" with

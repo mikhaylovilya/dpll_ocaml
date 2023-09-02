@@ -1,13 +1,13 @@
-(copy_files %{workspace_root}/TestFiles/*.txt)
+; (copy_files %{workspace_root}/testfiles/*.txt)
 
 (env
  (_
   (flags
-   (:standard -w -27-38-69-38-32))))
+   (:standard -w -27-38-69-38-32-34))))
 
 ; -g for debug?
 
-(library
+(executable
  (public_name dpll_ocaml)
  (name main)
  (libraries base stdio)
@@ -15,3 +15,8 @@
  ;  (preprocess
  ;   (pps ppx_inline_test))
  )
+
+(cram
+ (deps
+  main.exe
+  (glob_files testfiles/*.txt)))
