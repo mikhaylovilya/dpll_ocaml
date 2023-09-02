@@ -40,6 +40,7 @@ jobs:
     # - run: sudo apt install software-properties-common --yes
     # - run: sudo apt update
       # - run: eval $(opam env)
+      - run: sudo apt install picosat
       - run: opam install . --deps-only --with-test
       - run: opam exec -- dune build
       - run: opam exec -- dune runtest
