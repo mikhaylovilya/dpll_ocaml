@@ -99,8 +99,10 @@ module CNFFormula = struct
             Hash_set.add all l)
         in
         match cl with
-        | [ l ] when (not (Hash_set.mem units l)) && not (Hash_set.mem units (-l)) ->
-          Hash_set.strict_add_exn units l
+        | [ l ]
+          when (not (Hash_set.mem pures l))
+               && (not (Hash_set.mem units l))
+               && not (Hash_set.mem units (-l)) -> Hash_set.strict_add_exn units l
         | _ -> ())
     in
     units, pures
@@ -329,7 +331,16 @@ let main ~path =
   | _ -> None
 ;;
 
-let _ = print_model_to_dimacs @@ main ~path:(Sys.get_argv ()).(1)
+let _ =
+  let out = (Sys.get_argv ()).(1) in
+  let path = (Sys.get_argv ()).(2) in
+  match out with
+  | "sh" -> print_model_to_shell @@ main ~path
+  | "ds" -> print_model_to_dimacs @@ main ~path
+  | _ -> print_endline "invalid shell args"
+;;
+(* let _ = print_model_to_dimacs @@ main ~path:(Sys.get_argv ()).(1) *)
+(* let _ = print_model_to_shell @@ main ~path:(Sys.get_argv ()).(1) *)
 
 (* let%test "UNSAT" =
      match main ~path:"/home/cy/Desktop/ocaml-rep/dpll_ocaml/TestFiles/unsat_1_2.txt" with
