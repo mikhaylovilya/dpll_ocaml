@@ -332,11 +332,15 @@ let main ~path =
 ;;
 
 let _ =
-  let out = (Sys.get_argv ()).(1) in
-  let path = (Sys.get_argv ()).(2) in
-  match out with
-  | "sh" -> print_model_to_shell @@ main ~path
-  | "ds" -> print_model_to_dimacs @@ main ~path
+  let args = Sys.get_argv () in
+  match Array.length args with
+  | 3 ->
+    let out = args.(1) in
+    let path = args.(2) in
+    (match out with
+     | "sh" -> print_model_to_shell @@ main ~path
+     | "ds" -> print_model_to_dimacs @@ main ~path
+     | _ -> print_endline "invalid shell args")
   | _ -> print_endline "invalid shell args"
 ;;
 (* let _ = print_model_to_dimacs @@ main ~path:(Sys.get_argv ()).(1) *)
